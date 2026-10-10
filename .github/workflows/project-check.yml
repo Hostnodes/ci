@@ -1,0 +1,85 @@
+# The shared check every learner project runs (docs/architecture.md §7.3, §3).
+#
+# Lives in the school's `ci` repo and is called from each template's
+# .github/workflows/check.yml, pinned by tag:
+#
+#   uses: Hostnodes/ci/.github/workflows/project-check.yml@v1
+#
+# Changing the checks for every learner is a new tag (v1 → v2) plus a course
+# update of the templates' check.yml, or simply moving the v1 tag.
+#
+# It runs on the learner's pull request with a read-only token and no secrets
+# (GitHub's rule for pull requests from forks), installs, lints, tests and
+# builds the project, and keeps the built site as an artifact for the preview
+# workflow. Grading-only checks never run here: the repos are public.
+
+name: Project check (shared)
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: Node.js version
+        type: string
+        default: '22'
+      site-dir:
+        description: Folder the build writes the site to; when it doesn't exist the project's HTML, CSS, JS and images are published as they are
+        type: string
+        default: dist
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+
+      - name: Install
+        run: |
+          if [ ! -f package.json ]; then echo "No package.json: nothing to install."; exit 0; fi
+          if [ -f package-lock.json ]; then npm ci --ignore-scripts --no-audit --no-fund; else npm install --ignore-scripts --no-audit --no-fund; fi
+
+      - name: Lint
+        run: if [ -f package.json ]; then npm run lint --if-present; fi
+
+      - name: Tests
+        run: if [ -f package.json ]; then npm test --if-present; fi
+
+      - name: Build
+        run: if [ -f package.json ]; then npm run build --if-present; fi
+
+      - name: Keep the site for the preview
+        env:
+          SITE_DIR: ${{ inputs.site-dir }}
+        run: |
+          mkdir -p .preview
+          if [ -d "$SITE_DIR" ]; then
+            cp -R "$SITE_DIR/." .preview/
+          else
+            # No build step: publish the static files as they are.
+            find . -type f \( -name '*.html' -o -name '*.css' -o -name '*.js' -o -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.svg' -o -name '*.webp' -o -name '*.gif' -o -name '*.ico' -o -name '*.woff2' \) \
+              -not -path './node_modules/*' -not -path './.git/*' -not -path './.preview/*' -not -path './tests/*' -not -path './scripts/*' \
+              -exec cp --parents {} .preview/ \;
+          fi
+          # Twenty megabytes is plenty for a course project.
+          if [ "$(du -sk .preview | cut -f1)" -gt 20480 ]; then echo "The site is larger than 20 MB; no preview."; rm -rf .preview; mkdir .preview; fi
+
+      - name: Upload the site
+        uses: actions/upload-artifact@v4
+        with:
+          name: preview
+          path: .preview
+          retention-days: 7
+          if-no-files-found: ignore
