@@ -64,22 +64,23 @@ jobs:
         env:
           SITE_DIR: ${{ inputs.site-dir }}
         run: |
-          mkdir -p .preview
+          # Not a dot folder: the upload step skips hidden files and folders.
+          mkdir -p preview-site
           if [ -d "$SITE_DIR" ]; then
-            cp -R "$SITE_DIR/." .preview/
+            cp -R "$SITE_DIR/." preview-site/
           else
             # No build step: publish the static files as they are.
             find . -type f \( -name '*.html' -o -name '*.css' -o -name '*.js' -o -name '*.png' -o -name '*.jpg' -o -name '*.jpeg' -o -name '*.svg' -o -name '*.webp' -o -name '*.gif' -o -name '*.ico' -o -name '*.woff2' \) \
-              -not -path './node_modules/*' -not -path './.git/*' -not -path './.preview/*' -not -path './tests/*' -not -path './scripts/*' \
-              -exec cp --parents {} .preview/ \;
+              -not -path './node_modules/*' -not -path './.git/*' -not -path './preview-site/*' -not -path './tests/*' -not -path './scripts/*' \
+              -exec cp --parents {} preview-site/ \;
           fi
           # Twenty megabytes is plenty for a course project.
-          if [ "$(du -sk .preview | cut -f1)" -gt 20480 ]; then echo "The site is larger than 20 MB; no preview."; rm -rf .preview; mkdir .preview; fi
+          if [ "$(du -sk preview-site | cut -f1)" -gt 20480 ]; then echo "The site is larger than 20 MB; no preview."; rm -rf preview-site; mkdir preview-site; fi
 
       - name: Upload the site
         uses: actions/upload-artifact@v4
         with:
           name: preview
-          path: .preview
+          path: preview-site
           retention-days: 7
           if-no-files-found: ignore
